@@ -142,19 +142,20 @@ if [[ "${DASHBOARD_UPDATE}${CLOUDFLARED_UPDATE}${IS_BACKUP}${FORCE_UPDATE}" =~ t
     fi
   fi
 
-  # 停止面板、通过 GitHub API 上传备份并对 main 分支强制覆盖（不克隆仓库、不留提交历史）
+  # 克隆备份仓库，压缩备份文件，上传更新
   if [ "$IS_BACKUP" = 'true' ]; then
+    # 备份前先停掉面板，设置 git 环境变量，减少系统开支
     if [ "$IS_DOCKER" != 1 ]; then
       cmd_systemctl disable >/dev/null 2>&1
+      git config --global core.bigFileThreshold 1k
+      git config --global core.compression 0
+      git config --global advice.detachedHead false
+      git config --global pack.threads 1
+      git config --global pack.windowMemory 50m
     else
       supervisorctl stop nezha >/dev/null 2>&1
     fi
     sleep 10
-
-    # 检查 wget 是否支持自定义 HTTP 方法（需要 GNU Wget >= 1.21）
-    if ! wget --help 2>&1 | grep -q -- '--method'; then
-      error "The wget in use has no --method support. Need GNU Wget >= 1.21; please install GNU wget (or curl) and retry."
-    fi
 
     # 优化数据库，感谢 longsays 的脚本
     # 检查并安装 sqlite3 依赖
@@ -208,58 +209,32 @@ EOF
       rm -f /tmp/tmp.sql
     fi
 
-    # 只备份 data/ 目录下的 config.yaml 和 sqlite.db； resource/ 目录下名字有 custom 的自定义主题文件夹
-    TIME=$(date "+%Y-%m-%d-%H:%M:%S")
-    echo "↓↓↓↓↓↓↓↓↓↓ dashboard-$TIME.tar.gz list ↓↓↓↓↓↓↓↓↓↓"
-    [ -d "resource" ] && find resource/ -type d -name "*custom*" | tar czvf /tmp/dashboard-$TIME.tar.gz -T- data/ || tar czvf /tmp/dashboard-$TIME.tar.gz data/
-    echo -e "↑↑↑↑↑↑↑↑↑↑ dashboard-$TIME.tar.gz list ↑↑↑↑↑↑↑↑↑↑\n\n"
+    # 克隆现有备份库
+    [ -d /tmp/$GH_REPO ] && rm -rf /tmp/$GH_REPO
+    git clone https://$GH_PAT@github.com/$GH_BACKUP_USER/$GH_REPO.git --depth 1 --quiet /tmp/$GH_REPO
 
-    # 更新备份 Github 库：仅保留最近 $DAYS 个备份，其余随本次提交一同删除；全程通过 GitHub API，不克隆、不留历史
-    if [ ! -s /tmp/dashboard-$TIME.tar.gz ]; then
-      rm -f $(awk -F '=' '/NO_ACTION_FLAG/{print $2; exit}' $WORK_DIR/restore.sh)*
-      hint "\n Failed to create the backup files dashboard-$TIME.tar.gz. \n"
-    else
-      # 1. 上传新备份包的 blob（base64 编码为 GitHub Git Database API 接口要求）
-      base64 /tmp/dashboard-$TIME.tar.gz | tr -d '\n' > /tmp/backup.b64
-      { printf '{"content":"'; cat /tmp/backup.b64; printf '","encoding":"base64"}'; } > /tmp/blob_backup.json
-      BLOB_SHA=$(wget -qO- --method=POST --header="Authorization: token $GH_PAT" --header="Accept: application/vnd.github+json" --body-file=/tmp/blob_backup.json ${GH_PROXY}https://api.github.com/repos/$GH_BACKUP_USER/$GH_REPO/git/blobs | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -n1)
+    # 压缩备份数据，只备份 data/ 目录下的 config.yaml 和 sqlite.db； resource/ 目录下名字有 custom 的自定义主题文件夹
+    if [ -d /tmp/$GH_REPO ]; then
+      TIME=$(date "+%Y-%m-%d-%H:%M:%S")
+      echo "↓↓↓↓↓↓↓↓↓↓ dashboard-$TIME.tar.gz list ↓↓↓↓↓↓↓↓↓↓"
+      [ -d "resource" ] && find resource/ -type d -name "*custom*" | tar czvf /tmp/$GH_REPO/dashboard-$TIME.tar.gz -T- data/ || tar czvf /tmp/$GH_REPO/dashboard-$TIME.tar.gz data/
+      echo -e "↑↑↑↑↑↑↑↑↑↑ dashboard-$TIME.tar.gz list ↑↑↑↑↑↑↑↑↑↑\n\n"
 
-      # 2. 上传 README 的 blob，内容为最新备份文件名（restore.sh 依赖该文件的首行）
-      printf 'dashboard-%s.tar.gz\n' "$TIME" | base64 | tr -d '\n' > /tmp/readme.b64
-      { printf '{"content":"'; cat /tmp/readme.b64; printf '","encoding":"base64"}'; } > /tmp/blob_readme.json
-      README_SHA=$(wget -qO- --method=POST --header="Authorization: token $GH_PAT" --header="Accept: application/vnd.github+json" --body-file=/tmp/blob_readme.json ${GH_PROXY}https://api.github.com/repos/$GH_BACKUP_USER/$GH_REPO/git/blobs | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -n1)
-
-      # 3. 列出现有备份；本次新的一份必留，旧备份最多保留最近 $((DAYS-1)) 个，更旧的从新树中剔除（即删除）
-      OLD_KEEP=
-      OLD_LIST=$(wget -qO- --header="Authorization: token $GH_PAT" ${GH_PROXY}https://api.github.com/repos/$GH_BACKUP_USER/$GH_REPO/contents/)
-      OLD_PAIRS=$(printf '%s' "$OLD_LIST" | awk '
-        /"name": *"dashboard-.*\.tar\.gz"/{ n=$0; sub(/.*"name": *"/,"",n); sub(/".*/,"",n); name=n; have=1; next }
-        /"sha":/ && have{ s=$0; sub(/.*"sha": *"/,"",s); sub(/".*/,"",s); print name, s; have=0 }
-      ')
-      [ -n "$OLD_PAIRS" ] && OLD_KEEP=$(printf '%s\n' "$OLD_PAIRS" | sort -k1,1r | head -n $((DAYS-1)))
-
-      # 4. 重建整棵 tree：新备份 + 保留的旧备份 + README（过期的备份不进入新树，等价于删除）
-      TREE_ITEMS='[{"path":"dashboard-'"$TIME"'.tar.gz","mode":"100644","type":"blob","sha":"'"$BLOB_SHA"'"}'
-      while read NAME SHA; do
-        [ -z "$NAME" ] && continue
-        TREE_ITEMS="$TREE_ITEMS,{\"path\":\"$NAME\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"$SHA\"}"
-      done <<< "$OLD_KEEP"
-      TREE_ITEMS="$TREE_ITEMS,{\"path\":\"README.md\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"$README_SHA\"}]"
-      printf '%s' "$TREE_ITEMS" > /tmp/tree.json
-      NEW_TREE_SHA=$(wget -qO- --method=POST --header="Authorization: token $GH_PAT" --header="Accept: application/vnd.github+json" --body-file=/tmp/tree.json ${GH_PROXY}https://api.github.com/repos/$GH_BACKUP_USER/$GH_REPO/git/trees | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -n1)
-
-      # 5. 新建 root commit（父提交为空），使 main 被覆盖后始终是单提交，不累积历史
-      printf '{"message":"%s backup at %s","tree":"%s","parents":[]}' "$WAY" "$TIME" "$NEW_TREE_SHA" > /tmp/commit.json
-      COMMIT_SHA=$(wget -qO- --method=POST --header="Authorization: token $GH_PAT" --header="Accept: application/vnd.github+json" --body-file=/tmp/commit.json ${GH_PROXY}https://api.github.com/repos/$GH_BACKUP_USER/$GH_REPO/git/commits | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -n1)
-
-      # 6. 强制将 main 分支指向该 commit，完成上传与旧备份的删除
-      printf '{"sha":"%s","force":true}' "$COMMIT_SHA" > /tmp/ref.json
-      REF_RESP=$(wget -qO- --method=PATCH --header="Authorization: token $GH_PAT" --header="Accept: application/vnd.github+json" --body-file=/tmp/ref.json ${GH_PROXY}https://api.github.com/repos/$GH_BACKUP_USER/$GH_REPO/git/refs/heads/main)
-
-      # 清理临时文件
-      rm -f /tmp/backup.b64 /tmp/readme.b64 /tmp/blob_backup.json /tmp/blob_readme.json /tmp/tree.json /tmp/commit.json /tmp/ref.json /tmp/dashboard-$TIME.tar.gz
-
-      if [ -n "$COMMIT_SHA" ] && printf '%s' "$REF_RESP" | grep -q '"ref":'; then
+      # 更新备份 Github 库，删除 5 天前的备份
+      cd /tmp/$GH_REPO
+      [ -e ./.git/index.lock ] && rm -f ./.git/index.lock
+      echo "dashboard-$TIME.tar.gz" > README.md
+      find ./ -name '*.gz' | sort | head -n -$DAYS | xargs rm -f
+      git config --global user.name $GH_BACKUP_USER
+      git config --global user.email $GH_EMAIL
+      git checkout --orphan tmp_work
+      git add .
+      git commit -m "$WAY at $TIME ."
+      git push -f -u origin HEAD:main --quiet
+      IS_UPLOAD="$?"
+      cd ..
+      rm -rf $GH_REPO
+      if [ "$IS_UPLOAD" = 0 ]; then
         echo "dashboard-$TIME.tar.gz" > $WORK_DIR/dbfile
         info "\n Succeed to upload the backup files dashboard-$TIME.tar.gz to Github.\n"
       else

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
+# Github 反代加速代理，第一个为空相当于直连
+GITHUB_PROXY=('' 'https://v6.gh-proxy.org/' 'https://gh-proxy.com/' 'https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/' 'https://ghproxy.lvedong.eu.org/')
+
 # 各变量默认值
-GH_PROXY='https://ghproxy.lvedong.eu.org/'
 WORK_DIR='/opt/nezha/dashboard'
 TEMP_DIR='/tmp/nezha'
 START_PORT='5000'
@@ -168,7 +170,11 @@ check_port() {
 
 # 查安装及运行状态，下标0: argo，下标1: app， 状态码: 0 未安装， 1 已安装未运行， 2 运行中
 check_install() {
-  STATUS=$(text 26) && [ -s /etc/systemd/system/nezha-dashboard.service ] && STATUS=$(text 27) && [ "$(systemctl is-active nezha-dashboard)" = 'active' ] && STATUS=$(text 28)
+  if [ "$SYSTEM" = 'Alpine' ]; then
+    STATUS=$(text 26) && [ -s /etc/init.d/nezha-dashboard ] && STATUS=$(text 27) && [ "$(rc-service nezha-dashboard status 2>/dev/null | grep -c started)" -gt 0 ] && STATUS=$(text 28)
+  else
+    STATUS=$(text 26) && [ -s /etc/systemd/system/nezha-dashboard.service ] && STATUS=$(text 27) && [ "$(systemctl is-active nezha-dashboard)" = 'active' ] && STATUS=$(text 28)
+  fi
 
   if [ "$STATUS" = "$(text 26)" ]; then
     { wget -qO $TEMP_DIR/cloudflared ${GH_PROXY}https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH >/dev/null 2>&1 && chmod +x $TEMP_DIR/cloudflared >/dev/null 2>&1; }&
@@ -181,27 +187,21 @@ cmd_systemctl() {
   if [ "$ENABLE_DISABLE" = 'enable' ]; then
     if [ "$SYSTEM" = 'Alpine' ]; then
       local TRY=5
-      until [ $(systemctl is-active nezha-dashboard) = 'active' ]; do
-        systemctl stop nezha-dashboard; sleep 1
-        systemctl start nezha-dashboard
+      until [ "$(rc-service nezha-dashboard status | grep -c started)" -gt 0 ]; do
+        rc-service nezha-dashboard stop >/dev/null 2>&1; sleep 1
+        rc-service nezha-dashboard start >/dev/null 2>&1
         ((TRY--))
         [ "$TRY" = 0 ] && break
       done
-      cat > /etc/local.d/nezha-dashboard.start << EOF
-#!/usr/bin/env bash
-
-systemctl start nezha-dashboard
-EOF
-      chmod +x /etc/local.d/nezha-dashboard.start
-      rc-update add local >/dev/null 2>&1
+      rc-update add nezha-dashboard default >/dev/null 2>&1
     else
       systemctl enable --now nezha-dashboard
     fi
 
   elif [ "$ENABLE_DISABLE" = 'disable' ]; then
     if [ "$SYSTEM" = 'Alpine' ]; then
-      systemctl stop nezha-dashboard
-      rm -f /etc/local.d/nezha-dashboard.start
+      rc-service nezha-dashboard stop >/dev/null 2>&1
+      rc-update del nezha-dashboard default >/dev/null 2>&1
     else
       systemctl disable --now nezha-dashboard
     fi
@@ -234,17 +234,21 @@ check_system_info() {
 
 # 检测是否需要启用 Github CDN，如能直接连通，则不使用
 check_cdn() {
-  [ -n "$GH_PROXY" ] && wget --server-response --quiet --output-document=/dev/null --no-check-certificate --tries=2 --timeout=3 https://raw.githubusercontent.com/Kiritocyz/Argo-Nezha-Service-Container/main/README.md >/dev/null 2>&1 && unset GH_PROXY
+  # GITHUB_PROXY 数组第一个元素为空，相当于直连
+  for PROXY_URL in "${GITHUB_PROXY[@]}"; do
+    local PROXY_STATUS_CODE=$(wget --server-response --spider --quiet --timeout=3 --tries=1 ${PROXY_URL}https://github.com/Kiritocyz/Argo-Nezha-Service-Container/raw/main/README.md 2>&1 | awk '/HTTP\//{last_field = $2} END {print last_field}')
+    [ "$PROXY_STATUS_CODE" = "200" ] && GH_PROXY="$PROXY_URL" && break
+  done
 }
 
 check_dependencies() {
-  # 如果是 Alpine，先升级 wget ，安装 systemctl-py 版
+  # 如果是 Alpine，先升级 wget，安装 OpenRC 进程守护
   if [ "$SYSTEM" = 'Alpine' ]; then
     CHECK_WGET=$(wget 2>&1 | head -n 1)
     grep -qi 'busybox' <<< "$CHECK_WGET" && ${PACKAGE_INSTALL[int]} wget >/dev/null 2>&1
 
-    DEPS_CHECK=("bash" "rc-update" "git" "ss" "openssl" "python3" "unzip")
-    DEPS_INSTALL=("bash" "openrc" "git" "iproute2" "openssl" "python3" "unzip")
+    DEPS_CHECK=("bash" "rc-update" "git" "ss" "openssl" "unzip" "openrc")
+    DEPS_INSTALL=("bash" "openrc" "git" "iproute2" "openssl" "unzip" "openrc")
     for ((g=0; g<${#DEPS_CHECK[@]}; g++)); do [ ! -x "$(type -p ${DEPS_CHECK[g]})" ] && [[ ! "${DEPS[@]}" =~ "${DEPS_INSTALL[g]}" ]] && DEPS+=(${DEPS_INSTALL[g]}); done
     if [ "${#DEPS[@]}" -ge 1 ]; then
       info "\n $(text 7) ${DEPS[@]} \n"
@@ -253,8 +257,6 @@ check_dependencies() {
     else
       info "\n $(text 8) \n"
     fi
-
-    [ ! -x "$(type -p systemctl)" ] && wget ${GH_PROXY}https://raw.githubusercontent.com/gdraheim/docker-systemctl-replacement/master/files/docker/systemctl3.py -O /bin/systemctl && chmod a+x /bin/systemctl
 
   # 非 Alpine 系统安装的依赖
   else
@@ -280,23 +282,12 @@ certificate() {
 }
 
 dashboard_variables() {
-# 询问版本自动后台下载
-  [ -z "$DASHBOARD_VERSION" ] && reading "\n (1/14) $(text 40) " DASHBOARD_VERSION
-  if [ -z "$DASHBOARD_VERSION" ]; then
-    { wget -qO $TEMP_DIR/dashboard.zip ${GH_PROXY}https://github.com/nezhahq/nezha/releases/latest/download/dashboard-linux-$ARCH.zip >/dev/null 2>&1; }&
-  elif [[ "$DASHBOARD_VERSION" =~ [0-1]{1}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
-    DASHBOARD_LATEST=$(sed 's/[A-Za-z]//; s/^/v&/' <<< "$DASHBOARD_VERSION")
-    { wget -qO $TEMP_DIR/dashboard.zip ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip >/dev/null 2>&1; }&
-  else
-    error "\n $(text 42) \n"
-  fi
-
-  [ -z "$GH_USER" ] && reading " (2/14) $(text 9) " GH_USER
-  [ -z "$GH_CLIENTID" ] && reading "\n (3/14) $(text 10) " GH_CLIENTID
-  [ -z "$GH_CLIENTSECRET" ] && reading "\n (4/14) $(text 11) " GH_CLIENTSECRET
+  [ -z "$GH_USER" ] && reading " (1/14) $(text 9) " GH_USER
+  [ -z "$GH_CLIENTID" ] && reading "\n (2/14) $(text 10) " GH_CLIENTID
+  [ -z "$GH_CLIENTSECRET" ] && reading "\n (3/14) $(text 11) " GH_CLIENTSECRET
   local a=5
   until [[ "$ARGO_AUTH" =~ TunnelSecret || "$ARGO_AUTH" =~ ^[A-Z0-9a-z=]{120,250}$ || "$ARGO_AUTH" =~ .*cloudflared.*service[[:space:]]+install[[:space:]]+[A-Z0-9a-z=]{1,100} ]]; do
-    [ "$a" = 0 ] && error "\n $(text 3) \n" || reading "\n (5/14) $(text 12) " ARGO_AUTH
+    [ "$a" = 0 ] && error "\n $(text 3) \n" || reading "\n (4/14) $(text 12) " ARGO_AUTH
     if [[ "$ARGO_AUTH" =~ TunnelSecret ]]; then
       ARGO_JSON=${ARGO_AUTH//[ ]/}
     elif [[ "$ARGO_AUTH" =~ ^[A-Z0-9a-z=]{120,250}$ ]]; then
@@ -310,18 +301,18 @@ dashboard_variables() {
   done
 
   # 处理可能输入的错误，去掉开头和结尾的空格，去掉最后的 :
-  [ -z "$ARGO_DOMAIN" ] && reading "\n (6/14) $(text 13) " ARGO_DOMAIN
+  [ -z "$ARGO_DOMAIN" ] && reading "\n (5/14) $(text 13) " ARGO_DOMAIN
   ARGO_DOMAIN=$(sed 's/[ ]*//g; s/:[ ]*//' <<< "$ARGO_DOMAIN")
   { certificate; }&
 
   # # 用户选择使用 gRPC 反代方式: Nginx / Caddy / grpcwebproxy，默认为 Caddy
-  [ -z "$REVERSE_PROXY_MODE" ] && info "\n (7/14) $(text 38) \n" && reading " $(text 24) " REVERSE_PROXY_CHOOSE
+  [ -z "$REVERSE_PROXY_MODE" ] && info "\n (6/14) $(text 38) \n" && reading " $(text 24) " REVERSE_PROXY_CHOOSE
   case "$REVERSE_PROXY_CHOOSE" in
     2 ) REVERSE_PROXY_MODE=nginx ;;
     3 ) REVERSE_PROXY_MODE=grpcwebproxy ;;
     * ) REVERSE_PROXY_MODE=caddy ;;
   esac
-  [ "$REVERSE_PROXY_MODE" = "caddy" ] && reading "\n (7.5/14) $(text 45) " CADDY_VERSION
+  [ "$REVERSE_PROXY_MODE" = "caddy" ] && reading "\n (6.5/14) $(text 45) " CADDY_VERSION
   if [ -z "$CADDY_VERSION" ]; then
     CADDY_VERSION=2.9.1
   elif [[ "$CADDY_VERSION" =~ [0-9]{1}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
@@ -336,14 +327,14 @@ dashboard_variables() {
     [[ -z "$ARGO_AUTH" || -z "$ARGO_DOMAIN" ]] && error "\n $(text 18) "
   fi
 
-  [ -z "$GH_REPO"] && reading "\n (8/14) $(text 14) " GH_REPO
+  [ -z "$GH_REPO"] && reading "\n (7/14) $(text 14) " GH_REPO
   if [ -n "$GH_REPO" ]; then
-    [ -z "$GH_BACKUP_USER" ] && reading "\n (9/14) $(text 15) " GH_BACKUP_USER
+    [ -z "$GH_BACKUP_USER" ] && reading "\n (8/14) $(text 15) " GH_BACKUP_USER
     GH_BACKUP_USER=${GH_BACKUP_USER:-$GH_USER}
-    [ -z "$GH_EMAIL"] && reading "\n (10/14) $(text 16) " GH_EMAIL
-    [ -z "$GH_PAT"] && reading "\n (11/14) $(text 17) " GH_PAT
-    [ -z "$BACKUP_TIME"] && reading "\n (12/14) $(text 43) " BACKUP_TIME
-    [ -z "$BACKUP_NUM"] && reading "\n (13/14) $(text 44) " BACKUP_NUM
+    [ -z "$GH_EMAIL"] && reading "\n (9/14) $(text 16) " GH_EMAIL
+    [ -z "$GH_PAT"] && reading "\n (10/14) $(text 17) " GH_PAT
+    [ -z "$BACKUP_TIME"] && reading "\n (11/14) $(text 43) " BACKUP_TIME
+    [ -z "$BACKUP_NUM"] && reading "\n (12/14) $(text 44) " BACKUP_NUM
   fi
   if [ -z "$BACKUP_TIME" ]; then
       BACKUP_TIME="0 4 * * *"
@@ -351,6 +342,23 @@ dashboard_variables() {
   if [ -z "$BACKUP_NUM" ]; then
         BACKUP_NUM=5
   fi
+
+  # 询问版本自动后台下载
+  [ -z "$DASHBOARD_VERSION" ] && reading "\n (13/14) $(text 40) " DASHBOARD_VERSION
+  if [ -z "$DASHBOARD_VERSION" ]; then
+    { wget -qO $TEMP_DIR/dashboard.zip ${GH_PROXY}https://github.com/nezhahq/nezha/releases/latest/download/dashboard-linux-$ARCH.zip >/dev/null 2>&1; }&
+  elif [[ "$DASHBOARD_VERSION" =~ [0-1]\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+    DASHBOARD_LATEST=$(sed 's/[A-Za-z]//; s/^/v&/' <<< "$DASHBOARD_VERSION")
+    VERSION_NUM=${DASHBOARD_VERSION#v}  # 去掉可能的 v 前缀
+    if [ "$(printf '%s\n%s' "$VERSION_NUM" "0.20.13" | sort -V | head -n1)" = "$VERSION_NUM" ]; then
+      { wget -qO $TEMP_DIR/dashboard.zip ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip >/dev/null 2>&1; }&
+    else
+      { wget -qO $TEMP_DIR/dashboard.zip ${GH_PROXY}https://github.com/railzen/nezha-zero/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip >/dev/null 2>&1; }&
+    fi
+  else
+    error "\n $(text 42) \n"
+  fi
+
   [ -z "$AUTO_RENEW_OR_NOT"] && reading "\n (14/14) $(text 41) " AUTO_RENEW_OR_NOT
   grep -qiw 'n' <<< "$AUTO_RENEW_OR_NOT" && IS_AUTO_RENEW=#
 }
@@ -384,7 +392,7 @@ install() {
     tls $WORK_DIR/nezha.pem $WORK_DIR/nezha.key
 }
 EOF
-    if [[ -z "$DASHBOARD_VERSION" || "$DASHBOARD_VERSION" =~ 1\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+    if [[ -z "$DASHBOARD_VERSION" || "$DASHBOARD_VERSION" =~ [1-2]\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
       cat >> $TEMP_DIR/Caddyfile  << EOF
 :$WEB_PORT {
     reverse_proxy {
@@ -577,7 +585,29 @@ elif [ "\$1" = 'stop' ]; then
 fi
 EOF
 
-  cat > /etc/systemd/system/nezha-dashboard.service << EOF
+  if [ "$SYSTEM" = 'Alpine' ]; then
+    # 创建 OpenRC 服务文件
+    cat > /etc/init.d/nezha-dashboard << EOF
+#!/sbin/openrc-run
+
+name="Nezha Argo for VPS"
+description="Nezha Argo for VPS"
+command="${WORK_DIR}/run.sh"
+command_args="start"
+pidfile="/run/\${RC_SVCNAME}.pid"
+command_background="yes"
+depend() {
+    need net
+}
+stop() {
+    ${WORK_DIR}/run.sh stop
+    return 0
+}
+EOF
+    chmod +x /etc/init.d/nezha-dashboard
+  else
+    # 创建 systemd 服务文件
+    cat > /etc/systemd/system/nezha-dashboard.service << EOF
 [Unit]
 Description=Nezha Argo for VPS
 After=network.target
@@ -595,6 +625,7 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 EOF
+  fi
 
   # 生成 backup.sh 文件的步骤1 - 设置环境变量
   cat > ${WORK_DIR}/backup.sh << EOF
@@ -682,11 +713,20 @@ EOF
   sleep 5
 
   # 检测并显示结果
-  if [ "$(systemctl is-active nezha-dashboard)" = 'active' ]; then
-    [ -n "$ARGO_TOKEN" ] && hint "\n $(text 35) "
-    warning "\n $(text 34) " && info "\n $(text 30) $(text 31)! \n"
+  if [ "$SYSTEM" = 'Alpine' ]; then
+    if [ "$(rc-service nezha-dashboard status 2>/dev/null | grep -c started)" -gt 0 ]; then
+      [ -n "$ARGO_TOKEN" ] && hint "\n $(text 35) "
+      warning "\n $(text 34) " && info "\n $(text 30) $(text 31)! \n"
+    else
+      error "\n $(text 30) $(text 32)! \n"
+    fi
   else
-    error "\n $(text 30) $(text 32)! \n"
+    if [ "$(systemctl is-active nezha-dashboard)" = 'active' ]; then
+      [ -n "$ARGO_TOKEN" ] && hint "\n $(text 35) "
+      warning "\n $(text 34) " && info "\n $(text 30) $(text 31)! \n"
+    else
+      error "\n $(text 30) $(text 32)! \n"
+    fi
   fi
 }
 
@@ -695,10 +735,12 @@ uninstall() {
   cmd_systemctl disable
   grep -q 'REVERSE_PROXY_MODE=nginx' ${WORK_DIR}/run.sh && [ $(ps -ef | grep 'nginx' | wc -l) -le 1 ] && reading " $(text 39) " REMOVE_NGINX
   [[ "$REMOVE_NGINX" = [Yy] ]] && ${PACKAGE_UNINSTALL[int]} nginx
-  rm -rf /etc/systemd/system/nezha-dashboard.service ${WORK_DIR}
+
   if [ "$SYSTEM" = 'Alpine' ]; then
+    rm -rf /etc/init.d/nezha-dashboard ${WORK_DIR}
     sed -i "/\/opt\/nezha\/dashboard/d" /var/spool/cron/crontabs/root
   else
+    rm -rf /etc/systemd/system/nezha-dashboard.service ${WORK_DIR}
     sed -i "/\/opt\/nezha\/dashboard/d" /etc/crontab
     service cron restart >/dev/null 2>&1
   fi
@@ -714,8 +756,13 @@ menu_setting() {
     [ ${STATUS} = "$(text 28)" ] && OPTION[1]="1.  $(text 20) " || OPTION[1]="1.  $(text 21) "
     OPTION[2]="2.  $(text 29)"
 
-    [[ ${STATUS} = "$(text 28)" ]] && ACTION[1]() { cmd_systemctl disable; [ "$(systemctl is-active nezha-dashboard)" = 'inactive' ] && info "\n $(text 20) $(text 31) " || error " $(text 20) $(text 32) "; }
-    [[ ${STATUS} = "$(text 27)" ]] && ACTION[1]() { cmd_systemctl enable; [ "$(systemctl is-active nezha-dashboard)" = 'active' ] && info "\n $(text 21) $(text 31) " || error "\n $(text 21) $(text 32) "; }
+    if [ "$SYSTEM" = 'Alpine' ]; then
+      [[ ${STATUS} = "$(text 28)" ]] && ACTION[1]() { cmd_systemctl disable; [ "$(rc-service nezha-dashboard status 2>/dev/null | grep -c started)" -eq 0 ] && info "\n $(text 20) $(text 31) " || error " $(text 20) $(text 32) "; }
+      [[ ${STATUS} = "$(text 27)" ]] && ACTION[1]() { cmd_systemctl enable; [ "$(rc-service nezha-dashboard status 2>/dev/null | grep -c started)" -gt 0 ] && info "\n $(text 21) $(text 31) " || error "\n $(text 21) $(text 32) "; }
+    else
+      [[ ${STATUS} = "$(text 28)" ]] && ACTION[1]() { cmd_systemctl disable; [ "$(systemctl is-active nezha-dashboard)" = 'inactive' ] && info "\n $(text 20) $(text 31) " || error " $(text 20) $(text 32) "; }
+      [[ ${STATUS} = "$(text 27)" ]] && ACTION[1]() { cmd_systemctl enable; [ "$(systemctl is-active nezha-dashboard)" = 'active' ] && info "\n $(text 21) $(text 31) " || error "\n $(text 21) $(text 32) "; }
+    fi
 
    ACTION[2]() { uninstall; exit; }
 

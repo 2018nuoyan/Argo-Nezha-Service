@@ -14,7 +14,7 @@ IS_DOCKER=
 
 ########
 
-# version: 2024.04.02
+# version: 2026.06.21
 
 trap "rm -rf $TEMP_DIR; echo -e '\n' ;exit" INT QUIT TERM EXIT
 
@@ -58,14 +58,23 @@ ABC
 }
 
 # 在本地有不备份标志文件时，不执行备份操作，等待10分钟。触发该标志场景：1. README.md 文件内容包含关键词 backup，2. backup.sh 脚本被手动执行完成后保持 9 分钟。
-if [ -e $NO_ACTION_FLAG* ]; then
-  FLAG_STATUS=$(ls $NO_ACTION_FLAG*)
+if ls "$NO_ACTION_FLAG"* >/dev/null 2>&1; then
+  # 取序号最大的 flag，修正存在多个 flag 的意外情况
+  FLAG_STATUS=$(ls "$NO_ACTION_FLAG"* | sort -V | tail -n 1)
+
+  # 如果存在多个 flag，只保留最大的，其余删除
+  for f in "$NO_ACTION_FLAG"*; do
+    [ "$f" != "$FLAG_STATUS" ] && rm -f "$f"
+  done
+
   WAIT_MINUTE=9
-  if [ "${FLAG_STATUS: -1}" != "$WAIT_MINUTE" ]; then
-    mv -f $FLAG_STATUS $NO_ACTION_FLAG$((${FLAG_STATUS: -1} + 1))
-    error "\n The script is not executed, please wait for $(( WAIT_MINUTE - ${FLAG_STATUS: -1} )) minutes. \n"
+  CUR_MINUTE=${FLAG_STATUS##*[!0-9]}
+
+  if [ "$CUR_MINUTE" -lt "$WAIT_MINUTE" ]; then
+    mv -f "$FLAG_STATUS" "$NO_ACTION_FLAG$((CUR_MINUTE + 1))"
+    error "\n The script is not executed, please wait for $((WAIT_MINUTE - CUR_MINUTE)) minutes. \n"
   else
-    rm -f ${NO_ACTION_FLAG}*
+    rm -f "$NO_ACTION_FLAG"*
   fi
 fi
 
@@ -87,16 +96,17 @@ if [[ "$DASHBOARD_VERSION" =~ 0\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
   CONFIG_GRPCPORT=$(grep -i '^GRPCPort:' <<< "$CONFIG_YAML")
   CONFIG_GRPCHOST=$(grep -i '^GRPCHost:' <<< "$CONFIG_YAML")
   CONFIG_PROXYGRPCPORT=$(grep -i '^ProxyGRPCPort:' <<< "$CONFIG_YAML")
-  CONFIG_TYPE=$(sed -n '/Type:/ s/^[ ]\+//gp' <<< "$CONFIG_YAML")
-  CONFIG_ADMIN=$(sed -n '/Admin:/ s/^[ ]\+//gp' <<< "$CONFIG_YAML")
-  CONFIG_CLIENTID=$(sed -n '/ClientID:/ s/^[ ]\+//gp' <<< "$CONFIG_YAML")
-  CONFIG_CLIENTSECRET=$(sed -n '/ClientSecret:/ s/^[ ]\+//gp' <<< "$CONFIG_YAML")
+  CONFIG_TYPE=$(sed -n '/Type:/I s/^[ ]\+//gp' <<< "$CONFIG_YAML")
+  CONFIG_ADMIN=$(sed -n '/Admin:/I s/^[ ]\+//gp' <<< "$CONFIG_YAML")
+  CONFIG_CLIENTID=$(sed -n '/ClientID:/I s/^[ ]\+//gp' <<< "$CONFIG_YAML")
+  CONFIG_CLIENTSECRET=$(sed -n '/ClientSecret:/I s/^[ ]\+//gp' <<< "$CONFIG_YAML")
 
   # 如 dbfile 不为空，即不是首次安装，记录当前面板的主题等信息
   if [ -s $WORK_DIR/dbfile ]; then
     CONFIG_BRAND=$(sed -n '/brand:/s/^[ ]\+//gp' <<< "$CONFIG_YAML")
     CONFIG_COOKIENAME=$(sed -n '/cookiename:/s/^[ ]\+//gp' <<< "$CONFIG_YAML")
-    CONFIG_THEME=$(sed -n '/theme:/s/^[ ]\+//gp' <<< "$CONFIG_YAML")
+    CONFIG_THEME=$(sed -n '/^[[:space:]]*theme:/s/^[ ]\+//gp' <<< "$CONFIG_YAML")
+    CONFIG_DASHBOARDTHEME=$(sed -n '/^[[:space:]]*dashboardtheme:/s/^[ ]\+//gp' <<< "$CONFIG_YAML")
     CONFIG_AVGPINGCOUNT=$(grep -i 'AvgPingCount:' <<< "$CONFIG_YAML")
     CONFIG_MAXTCPPINGVALUE=$(grep -i 'MaxTCPPingValue:' <<< "$CONFIG_YAML")
   fi
@@ -153,7 +163,7 @@ if [ -e $TEMP_DIR/backup.tar.gz ]; then
 
     # 逻辑是安装首次使用备份文件里的主题信息，之后使用本地最新的主题信息和 MaxTCPPingValue, AvgPingCount
     [[ -n "$CONFIG_BRAND" && -n "$CONFIG_COOKIENAME" && -n "$CONFIG_THEME" ]] &&
-    sed -i "s@brand:.*@$CONFIG_BRAND@; s@cookiename:.*@$CONFIG_COOKIENAME@; s@theme:.*@$CONFIG_THEME@" ${TEMP_DIR}/${FILE_PATH}data/config.yaml
+    sed -i "s@brand:.*@$CONFIG_BRAND@; s@cookiename:.*@$CONFIG_COOKIENAME@; s@theme:.*@$CONFIG_THEME@; s@dashboardtheme:.*@$CONFIG_DASHBOARDTHEME@" ${TEMP_DIR}/${FILE_PATH}data/config.yaml
 
     [[ "$(awk '{print $NF}' <<< "$CONFIG_AVGPINGCOUNT")" =~ ^[0-9]+$ ]] && sed -i "s@AvgPingCount:.*@$CONFIG_AVGPINGCOUNT@" ${TEMP_DIR}/${FILE_PATH}data/config.yaml
 

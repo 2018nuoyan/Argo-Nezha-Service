@@ -37,7 +37,7 @@
   - 获得 `github` 的 `OAuth 2.0` 认证和 `PAT` ，[点击前往教程](https://github.com/Kiritocyz/Argo-Nezha-Service-Container/blob/main/README.md#%E5%87%86%E5%A4%87%E9%9C%80%E8%A6%81%E7%94%A8%E7%9A%84%E5%8F%98%E9%87%8F)，注意 `v0` 和 `v1` 的 `OAuth 2.0` 认证是不同的，[点击前往了解区别](https://github.com/Kiritocyz/Argo-Nezha-Service-Container#%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%BB%A5%E5%8F%8A%E5%9D%91%E7%82%B9)。
 ## docker镜像及其环境变量说明
 
-docker镜像： `mikehand888/argo-nezha:latest` ， 支持 amd64 和 arm64 架构。
+docker镜像：`mikehand888/argo-nezha:latest` ， 支持 amd64 和 arm64 架构。
 
 [容器平台上部署教程，点击前往](https://github.com/Kiritocyz/Argo-Nezha-Service-Container/blob/main/README.md#paas-%E9%83%A8%E7%BD%B2%E5%AE%9E%E4%BE%8B)
 
@@ -55,11 +55,11 @@ docker镜像： `mikehand888/argo-nezha:latest` ， 支持 amd64 和 arm64 架�
   | GH_PAT              | 备份必填 | github 的私钥（PAT），用于备份库的 git 推送 |
   | REVERSE_PROXY_MODE  | 否 | 默认使用 Caddy 应用来反代，可以不填。v0可选 Nginx 或 gRPCwebProxy；v1必须用 Caddy |
   | CADDY_VERSION       | 否 | 不填默认使用固定 `2.9.1` 版本的Caddy，可自行输入。 |
-  | ARGO_AUTH           | 必填 | Json: 从 https://fscarmen.cloudflare.now.cc 获取的 Argo Json<br> Token: 从 Cloudflare 官网获取 |
+  | ARGO_AUTH           | 必填 | Json：从 https://fscarmen.cloudflare.now.cc 获取的 Argo Json <br> Token：从 Cloudflare 官网获取 |
   | ARGO_DOMAIN         | 必填 | Argo 域名 |
   | NO_AUTO_RENEW       | 否 | 默认不需要该变量，即每天定时同步在线最新的备份和还原脚本。如不需要该功能，设置此变量为 `1` |
-  | DASHBOARD_VERSION   | 否 | 指定面板的版本。`v0.00.00` 的格式和 `v1.00.00` 的格式，填写了将会把版本固定在所填版本。不填则是最新的v1面板 |
-  | AGENT_VERSION       | 否 | 指定探针的版本。`v0.00.00` 的格式和 `v1.00.00` 的格式，填写了将会把版本固定在所填版本。不填有两种情况：对于v1面板是保持最新的v1探针；对于v0面板是v0.20.5版本 |
+  | DASHBOARD_VERSION   | 否 | 指定面板的版本。`vx.xx.xx` 的格式，填写了将会把版本固定在所填版本。<br>版本分配规则：<br>• 不填：则使用 `naiba/nezha` 最新版本的 `nezha`<br>• v0版本 > 0.20.13：从 `railzen/nezha-zero` 下载<br>• 其余版本：从 `naiba/nezha` 下载 |
+  | AGENT_VERSION       | 否 | 指定探针的版本。`vx.xx.xx` 的格式，填写了将会把版本固定在所填版本。<br>不填有两种情况：<br>• 对于v1面板是保持最新的v1探针<br>• 对于v0面板是v0.20.5版本 |
   | PRO_PORT            | 否 | 容器平台的开放端口，不填默认为80。如果容器开放的端口不为80且argo隧道使用的token，则修改此处并手动修改隧道设置里对应的端口 |
   | UUID                | 否 | 填写会有节点，在日志查看base64 |
   | BACKUP_TIME         | 否 | 自定义备份时间，不填默认为 `0 4 * * *`，即每天北京时间4点备份 |
@@ -77,7 +77,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/Kiritocyz/Argo-Nezha-Service-
   | ------------ | ------   |
   | 探针不上线，[点击前往域名准备教程](https://github.com/Kiritocyz/Argo-Nezha-Service-Container#%E5%87%86%E5%A4%87%E9%9C%80%E8%A6%81%E7%94%A8%E7%9A%84%E5%8F%98%E9%87%8F) | 请在 `cf` 面板查看 `argo`域名的 `grpc` 设置，一定要开启！还有可能是域名的问题，可以换个域名试试 |
   | agent的安装命令 | 端口需确认为 `443` ，`tls` 需确认为 `true` |
-  | Github OAuth 2.0 | v0为 `https://你的面板域名/oauth2/callback` ；v1为 `https://你的面板域名/api/v1/oauth2/callback` ，v1需要先使用本地账户登录，并在 `右上角头像-个人信息` 里完成 OAuth2 绑定，如果还没有绑定关系，不能直接使用 OAuth2 登录到本地账户|
+  | Github OAuth 2.0 | v0为 `https://你的面板域名/oauth2/callback` <br>v1为 `https://你的面板域名/api/v1/oauth2/callback` <br>v1需要先使用本地账户登录，并在 `右上角头像-个人信息` 里完成 OAuth2 绑定，如果还没有绑定关系，不能直接使用 OAuth2 登录到本地账户|
   | 使用备份，[点击前往备份教程](https://github.com/Kiritocyz/Argo-Nezha-Service-Container?tab=readme-ov-file#%E6%89%8B%E5%8A%A8%E5%A4%87%E4%BB%BD%E6%95%B0%E6%8D%AE) | 有的容器重启会丢失数据，需要使用备份，需要 `GH_USER`或`GH_BACKUP_USER`、`GH_REPO`、`GH_EMAIL`、`GH_PAT` 这4个变量有值 |
   | 注意自动还原 | 容器在修改环境变量后会重新部署，注意备份库会自动还原备份 |
   | v1面板开启tsdb功能 | 已运行容器需要自行去容器后台修改面板配置文件并备份；vps需要修改面板配置文件并重启面板 |
@@ -99,6 +99,8 @@ Documentation: [English version](https://github.com/fscarmen2/Argo-Nezha-Service
 # 目录
 
 - [项目特点](README.md#项目特点)
+- [视频部署教学](README.md#视频部署教学)
+- [其他开发者项目](README.md#其他开发者项目)
 - [准备需要用的变量](README.md#准备需要用的变量)
 - [Argo 认证的获取方式: json 或 token](README.md#argo-认证的获取方式-json-或-token)
 - [PaaS 部署实例](README.md#PaaS-部署实例)
@@ -131,6 +133,29 @@ Documentation: [English version](https://github.com/fscarmen2/Argo-Nezha-Service
 
 <img width="1609" alt="image" src="https://github.com/fscarmen2/Argo-Nezha-Service-Container/assets/92626977/ecd9d887-68f0-46f9-9a63-eb0275f066eb">
 
+
+## 视频部署教学
+▶️ [【YouTube】无VPS搭建哪吒探针：使用Paas、Cloudflare与GitHub的创新方案](https://www.youtube.com/watch?v=YaQFfMckXFQ) — by 科技Land
+
+## 其他开发者项目
+
+除了本项目外，社区中还有其他优秀的开发者提供了不同的部署方案和功能增强版本：
+
+### Kiritocyz/Argo-Nezha-Service-Container
+项目地址: https://github.com/Kiritocyz/Argo-Nezha-Service-Container
+
+此项目是本项目的扩展版本，具有以下特点：
+- 同时支持哪吒监控 v0 和 v1 版本
+- 支持 Docker 和 VPS 两种部署方式
+
+### IonRh/nezha_v1
+项目地址: https://github.com/IonRh/nezha_v1
+
+专门针对哪吒监控 v1 版本的 Docker 部署方案：
+- 专为哪吒 v1 设计
+- 简化的 Docker 部署流程
+
+这些项目为不同需求的用户提供了更多选择，可以根据具体需求选择合适的部署方案。
 
 ## 准备需要用的变量
 * 到 Cloudflare 官网，选择使用的域名，打开 `网络` 选项将 `gRPC` 开关打开
@@ -194,7 +219,7 @@ Argo 隧道认证方式有 json 和 token，使用两个方式其中之一。推
   | ARGO_AUTH           | 是 | Json: 从 https://fscarmen.cloudflare.now.cc 获取的 Argo Json<br> Token: 从 Cloudflare 官网获取 |
   | ARGO_DOMAIN         | 是 | Argo 域名 |
   | NO_AUTO_RENEW       | 否 | 默认不需要该变量，即每天定时同步在线最新的备份和还原脚本。如不需要该功能，设置此变量，并赋值为 `1` |
-  | DASHBOARD_VERSION   | 否 | 指定面板的版本，以 `v0.00.00` 的格式，后续将固定在该版本不会升级，不填则使用默认的 `v0.20.13` |
+  | DASHBOARD_VERSION   | 否 | 指定面板的版本，以 `v0.00.00` 的格式。<br>版本分配规则：<br>• 版本 < 0.20.13: 从 `naiba/nezha` 下载<br>• 版本 = 0.20.13: 从 `nap0o/nezha-dashboard` 下载<br>• 版本 > 0.20.13: 从 `railzen/nezha-zero` 下载<br>如版本不存在会自动回退到 `railzen/nezha-zero` 最新版本。不填则使用默认的最新版本 |
 
 Koyeb
 

@@ -4,7 +4,7 @@
 if [ ! -s /etc/supervisor/conf.d/damon.conf ]; then
 
   # 设置 Github CDN 及若干变量，如是 IPv6 only 或者大陆机器，需要 Github 加速网，可自行查找放在 GH_PROXY 处 ，如 https://ghproxy.lvedong.eu.org/ ，能不用就不用，减少因加速网导致的故障。
-  GH_PROXY='https://ghproxy.lvedong.eu.org/'
+  GITHUB_PROXY=('' 'https://v6.gh-proxy.org/' 'https://gh-proxy.com/' 'https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/' 'https://ghproxy.lvedong.eu.org/')
   GRPC_PROXY_PORT=443
   GRPC_PORT=8008
   WEB_PORT=8080
@@ -32,7 +32,10 @@ if [ ! -s /etc/supervisor/conf.d/damon.conf ]; then
   [ -n "$GH_REPO" ] && grep -q '/' <<< "$GH_REPO" && GH_REPO=$(awk -F '/' '{print $NF}' <<< "$GH_REPO")  # 填了项目全路径的处理
 
   # 检测是否需要启用 Github CDN，如能直接连通，则不使用
-  [ -n "$GH_PROXY" ] && wget --server-response --quiet --output-document=/dev/null --no-check-certificate --tries=2 --timeout=3 https://raw.githubusercontent.com/Kiritocyz/Argo-Nezha-Service-Container/main/README.md >/dev/null 2>&1 && unset GH_PROXY
+  for PROXY_URL in "${GITHUB_PROXY[@]}"; do
+    PROXY_STATUS_CODE=$(wget --server-response --spider --quiet --timeout=3 --tries=1 ${PROXY_URL}https://github.com/Kiritocyz/Argo-Nezha-Service-Container/raw/main/README.md 2>&1 | awk '/HTTP\//{last_field = $2} END {print last_field}')
+    [ "$PROXY_STATUS_CODE" = "200" ] && GH_PROXY="$PROXY_URL" && break
+  done
 
   # 设置 DNS
   echo -e "nameserver 127.0.0.11\nnameserver 8.8.4.4\nnameserver 223.5.5.5\nnameserver 2001:4860:4860::8844\nnameserver 2400:3200::1\n" > /etc/resolv.conf
@@ -52,7 +55,7 @@ if [ ! -s /etc/supervisor/conf.d/damon.conf ]; then
     armv7* )
       ARCH=arm
       ;;
-    * ) error " $(text 2) "
+    * ) error "Unsupported architecture"
   esac
 
   # 用户选择使用 gRPC 反代方式: Nginx / Caddy / grpcwebproxy，默认为 Caddy；如需使用 grpcwebproxy，把 REVERSE_PROXY_MODE 的值设为 nginx 或 grpcwebproxy
@@ -175,8 +178,8 @@ EOF
   fi
   
   # 下载需要的应用
-  if [[ -z "$DASHBOARD_VERSION" || "$DASHBOARD_VERSION" =~ 1\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
-    if [[ "$DASHBOARD_VERSION" =~ 1\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+  if [[ -z "$DASHBOARD_VERSION" || "$DASHBOARD_VERSION" =~ [1-2]\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+    if [[ "$DASHBOARD_VERSION" =~ [1-2]\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
       DASHBOARD_LATEST=$(sed 's/v//; s/^/v&/' <<< "$DASHBOARD_VERSION")
       wget -O /tmp/dashboard.zip ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip
     else
@@ -184,7 +187,7 @@ EOF
     fi
     if [ -z "$AGENT_VERSION" ]; then
       wget -O $WORK_DIR/nezha-agent.zip ${GH_PROXY}https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_$ARCH.zip
-    elif [[ "$AGENT_VERSION" =~ 1\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+    elif [[ "$AGENT_VERSION" =~ [1-2]\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
       AGENT_LATEST=$(sed 's/v//; s/^/v&/' <<< "$AGENT_VERSION")
       wget -O $WORK_DIR/nezha-agent.zip ${GH_PROXY}https://github.com/nezhahq/agent/releases/download/$AGENT_LATEST/nezha-agent_linux_$ARCH.zip
     else
@@ -193,7 +196,12 @@ EOF
   elif [[ "$DASHBOARD_VERSION" =~ 0\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
     [-z "$GH_USER" || -z "$GH_CLIENTID" || -z "$GH_CLIENTSECRET"] && error " There are github variables that are not set. "
     DASHBOARD_LATEST=$(sed 's/v//; s/^/v&/' <<< "$DASHBOARD_VERSION")
-    wget -O /tmp/dashboard.zip ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip
+    VERSION_NUM=${DASHBOARD_VERSION#v}  # 去掉可能的 v 前缀
+    if [ "$(printf '%s\n%s' "$VERSION_NUM" "0.20.13" | sort -V | head -n1)" = "$VERSION_NUM" ]; then
+      wget -O /tmp/dashboard.zip ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip
+    else
+      wget -O /tmp/dashboard.zip ${GH_PROXY}https://github.com/railzen/nezha-zero/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip
+    fi
     if [ -z "$AGENT_VERSION" ]; then
       wget -O $WORK_DIR/nezha-agent.zip ${GH_PROXY}https://github.com/nezhahq/agent/releases/download/v0.20.5/nezha-agent_linux_$ARCH.zip
     elif [[ "$AGENT_VERSION" =~ 0\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
@@ -507,9 +515,9 @@ echo "  "
 echo "=============================="
 fi
   # 赋执行权给 sh 及所有应用
-  chmod +x $WORK_DIR/{cloudflared,app,nezha-agent,*.sh}
+  chmod +x $WORK_DIR/{cloudflared,nezha-agent,*.sh}
 
 fi
 
-# 运行 supervisor 进程守护
-supervisord -c /etc/supervisor/supervisord.conf
+# 运行 supervisor 进程守护，并让其成为真正的 PID 1
+exec supervisord -c /etc/supervisor/supervisord.conf
