@@ -10,7 +10,7 @@
   <summary>更新日志</summary>
 
 - 2026.8.10
-  -修复 template/backup.sh, 新备份逻辑测试成功。
+  - 修复 template/backup.sh, 新备份逻辑测试成功。
 - 2026.8.9
   - 同步上游更新并更改备份逻辑。
   - 更改 template/backup.sh 的备份逻辑。
