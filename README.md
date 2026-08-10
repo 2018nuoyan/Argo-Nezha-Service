@@ -9,6 +9,11 @@
 <details>
   <summary>更新日志</summary>
 
+- 2026.8.10
+  -修复 template/backup.sh, 新备份逻辑测试成功。
+- 2026.8.9
+  - 同步上游更新并更改备份逻辑。
+  - 更改 template/backup.sh 的备份逻辑。
 - 2026.6.5
   - 默认使用固定版本的Caddy，可自行输入版本。
   - 优化docker的Caddy配置文件。
