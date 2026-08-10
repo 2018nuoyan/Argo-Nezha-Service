@@ -245,7 +245,7 @@ EOF
         TREE_ITEMS="$TREE_ITEMS,{\"path\":\"$NAME\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"$SHA\"}"
       done <<< "$OLD_KEEP"
       TREE_ITEMS="$TREE_ITEMS,{\"path\":\"README.md\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"$README_SHA\"}]"
-      printf '%s' "$TREE_ITEMS" > /tmp/tree.json
+      printf '{"tree":%s}' "$TREE_ITEMS" > /tmp/tree.json
       NEW_TREE_SHA=$(wget -qO- --method=POST --header="Authorization: token $GH_PAT" --header="Accept: application/vnd.github+json" --body-file=/tmp/tree.json ${GH_PROXY}https://api.github.com/repos/$GH_BACKUP_USER/$GH_REPO/git/trees | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -n1)
 
       # 5. 新建 root commit（父提交为空），使 main 被覆盖后始终是单提交，不累积历史
