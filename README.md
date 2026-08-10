@@ -11,8 +11,10 @@
 
 - 2026.8.10
   - 修复 template/backup.sh, 新备份逻辑测试成功。
+  - 面板版本选择同步上游。
+  - 去除 GH_EMAIL 限制。
 - 2026.8.9
-  - 同步上游更新并更改备份逻辑。
+  - 同步上游更新。
   - 更改 template/backup.sh 的备份逻辑。
 - 2026.6.5
   - 默认使用固定版本的Caddy，可自行输入版本。
@@ -51,24 +53,24 @@ docker镜像：`mikehand888/argo-nezha:latest` ， 支持 amd64 和 arm64 架构
 
   | 变量名        | 是否必须  | 备注 |
   | ------------ | ------   | ---- |
-  | GH_USER             | v0必填 | github 的用户名，用于面板管理授权 |
-  | GH_CLIENTID         | v0必填 | 在 github 上申请 |
-  | GH_CLIENTSECRET     | v0必填 | 在 github 上申请 |
+  | GH_USER             | `v0`必填 | github 的用户名，用于面板管理授权 |
+  | GH_CLIENTID         | `v0`必填 | 在 github 上申请 |
+  | GH_CLIENTSECRET     | `v0`必填 | 在 github 上申请 |
   | GH_BACKUP_USER      | 备份或填 | 在 github 上备份哪吒服务端数据库的 github 用户名，不填则与面板管理授权的账户 GH_USER 一致  |
   | GH_REPO             | 备份必填 | 在 github 上备份哪吒服务端数据库文件的 github 库 |
-  | GH_EMAIL            | 备份必填 | github 的邮箱，用于备份库的 git 推送 |
+  | GH_EMAIL            | 否 | ~~github 的邮箱，用于备份库的 git 推送~~<br>已更改备份逻辑，可不填 |
   | GH_PAT              | 备份必填 | github 的私钥（PAT），用于备份库的 git 推送 |
   | REVERSE_PROXY_MODE  | 否 | 默认使用 Caddy 应用来反代，可以不填。v0可选 Nginx 或 gRPCwebProxy；v1必须用 Caddy |
   | CADDY_VERSION       | 否 | 不填默认使用固定 `2.9.1` 版本的Caddy，可自行输入。 |
   | ARGO_AUTH           | 必填 | Json：从 https://fscarmen.cloudflare.now.cc 获取的 Argo Json <br> Token：从 Cloudflare 官网获取 |
   | ARGO_DOMAIN         | 必填 | Argo 域名 |
   | NO_AUTO_RENEW       | 否 | 默认不需要该变量，即每天定时同步在线最新的备份和还原脚本。如不需要该功能，设置此变量为 `1` |
-  | DASHBOARD_VERSION   | 否 | 指定面板的版本。`vx.xx.xx` 的格式，填写了将会把版本固定在所填版本。<br>版本分配规则：<br>• 不填：则使用 `naiba/nezha` 最新版本的 `nezha`<br>• v0版本 > 0.20.13：从 `railzen/nezha-zero` 下载<br>• 其余版本：从 `naiba/nezha` 下载 |
-  | AGENT_VERSION       | 否 | 指定探针的版本。`vx.xx.xx` 的格式，填写了将会把版本固定在所填版本。<br>不填有两种情况：<br>• 对于v1面板是保持最新的v1探针<br>• 对于v0面板是v0.20.5版本 |
-  | PRO_PORT            | 否 | 容器平台的开放端口，不填默认为80。如果容器开放的端口不为80且argo隧道使用的token，则修改此处并手动修改隧道设置里对应的端口 |
+  | DASHBOARD_VERSION   | 否 | 指定面板的版本。`vx.xx.xx` 的格式，填写了将会把版本固定在所填版本。<br>版本分配规则：<br>• 不填：则使用 [`naiba/nezha`](https://github.com/nezhahq/nezha) 最新版本的 `nezha`<br>• 版本 = `0.20.13`: 从 [`nap0o/nezha-dashboard`](https://github.com/nap0o/nezha-dashboard) 下载<br>• `v0` 且版本 > `0.20.13`：从 [`railzen/nezha-zero`](https://github.com/railzen/nezha-zero) 下载<br>• 其余版本：从 [`naiba/nezha`](https://github.com/nezhahq/nezha) 下载 |
+  | AGENT_VERSION       | 否 | 指定探针的版本。`vx.xx.xx` 的格式，填写了将会把版本固定在所填版本。<br>不填有两种情况：<br>• 对于 `v1`面板是保持最新的 `v1` 探针<br>• 对于 `v0` 面板是` v0.20.5` 版本 |
+  | PRO_PORT            | 否 | 容器平台的开放端口，不填默认为 `80` 。如果容器开放的端口不为 `80` 且 `argo` 隧道使用的 `token` ，则修改此处并手动修改隧道设置里对应的端口 |
   | UUID                | 否 | 填写会有节点，在日志查看base64 |
-  | BACKUP_TIME         | 否 | 自定义备份时间，不填默认为 `0 4 * * *`，即每天北京时间4点备份 |
-  | BACKUP_NUM          | 否 | 自定义备份仓库中的备份总数，不填默认为 5，即仓库里只保留5个备份 |
+  | BACKUP_TIME         | 否 | 自定义备份时间，不填默认为 `0 4 * * *`，即每天北京时间 `4` 点备份 |
+  | BACKUP_NUM          | 否 | 自定义备份仓库中的备份总数，不填默认为 `5` ，即仓库里只保留5个备份 |
 
 ## 在VPS上使用脚本部署
 
@@ -82,10 +84,10 @@ bash <(wget -qO- https://raw.githubusercontent.com/Kiritocyz/Argo-Nezha-Service-
   | ------------ | ------   |
   | 探针不上线，[点击前往域名准备教程](https://github.com/Kiritocyz/Argo-Nezha-Service-Container#%E5%87%86%E5%A4%87%E9%9C%80%E8%A6%81%E7%94%A8%E7%9A%84%E5%8F%98%E9%87%8F) | 请在 `cf` 面板查看 `argo`域名的 `grpc` 设置，一定要开启！还有可能是域名的问题，可以换个域名试试 |
   | agent的安装命令 | 端口需确认为 `443` ，`tls` 需确认为 `true` |
-  | Github OAuth 2.0 | v0为 `https://你的面板域名/oauth2/callback` <br>v1为 `https://你的面板域名/api/v1/oauth2/callback` <br>v1需要先使用本地账户登录，并在 `右上角头像-个人信息` 里完成 OAuth2 绑定，如果还没有绑定关系，不能直接使用 OAuth2 登录到本地账户|
+  | Github OAuth 2.0 | `v0` 为 `https://你的面板域名/oauth2/callback` <br>`v1` 为 `https://你的面板域名/api/v1/oauth2/callback` <br>`v1` 需要先使用本地账户登录，并在 `右上角头像-个人信息` 里完成 OAuth2 绑定，如果还没有绑定关系，不能直接使用 OAuth2 登录到本地账户|
   | 使用备份，[点击前往备份教程](https://github.com/Kiritocyz/Argo-Nezha-Service-Container?tab=readme-ov-file#%E6%89%8B%E5%8A%A8%E5%A4%87%E4%BB%BD%E6%95%B0%E6%8D%AE) | 有的容器重启会丢失数据，需要使用备份，需要 `GH_USER`或`GH_BACKUP_USER`、`GH_REPO`、`GH_EMAIL`、`GH_PAT` 这4个变量有值 |
   | 注意自动还原 | 容器在修改环境变量后会重新部署，注意备份库会自动还原备份 |
-  | v1面板开启tsdb功能 | 已运行容器需要自行去容器后台修改面板配置文件并备份；vps需要修改面板配置文件并重启面板 |
+  | `v1` 面板开启tsdb功能 | 已运行容器需要自行去容器后台修改面板配置文件并备份；<br>vps需要修改面板配置文件并重启面板 |
   | 使用本地ssh，[点击前往ssh教程](https://github.com/Kiritocyz/Argo-Nezha-Service-Container?tab=readme-ov-file#ssh-%E6%8E%A5%E5%85%A5) | 需要 `GH_CLIENTID`、`GH_CLIENTSECRET` 这2个变量有值 |
 
 * * *

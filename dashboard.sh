@@ -45,8 +45,8 @@ E[14]="If you need to back up your database to Github regularly, please enter th
 C[14]="如需要定时把数据库备份到 Github，请输入 Github 私库名，否则请留空:"
 E[15]="Please enter the Github username for the database \(default \$GH_USER\):"
 C[15]="请输入数据库的 Github 用户名 \(默认 \$GH_USER\):"
-E[16]="Please enter the Github Email for the database:"
-C[16]="请输入数据库的 Github Email:"
+E[16]="Please enter the Github Email for the database, otherwise leave it blank:"
+C[16]="请输入数据库的 Github Email，可不填跳过:"
 E[17]="Please enter a Github PAT:"
 C[17]="请输入 Github PAT:"
 E[18]="There are variables that are not set. Installation aborted. Feedback: [https://github.com/Kiritocyz/Argo-Nezha-Service-Container/issues]"
@@ -315,7 +315,7 @@ dashboard_variables() {
   [ "$REVERSE_PROXY_MODE" = "caddy" ] && reading "\n (6.5/14) $(text 45) " CADDY_VERSION
   if [ -z "$CADDY_VERSION" ]; then
     CADDY_VERSION=2.9.1
-  elif [[ "$CADDY_VERSION" =~ [0-9]{1}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+  elif [[ "$CADDY_VERSION" =~ [0-9]\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
     CADDY_VERSION=$(sed 's/[A-Za-z]//' <<< "$CADDY_VERSION")
   else
     error "\n $(text 42) \n"
@@ -347,12 +347,17 @@ dashboard_variables() {
   [ -z "$DASHBOARD_VERSION" ] && reading "\n (13/14) $(text 40) " DASHBOARD_VERSION
   if [ -z "$DASHBOARD_VERSION" ]; then
     { wget -qO $TEMP_DIR/dashboard.zip ${GH_PROXY}https://github.com/nezhahq/nezha/releases/latest/download/dashboard-linux-$ARCH.zip >/dev/null 2>&1; }&
-  elif [[ "$DASHBOARD_VERSION" =~ [0-1]\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+  elif [[ "$DASHBOARD_VERSION" =~ [0-2]\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
     DASHBOARD_LATEST=$(sed 's/[A-Za-z]//; s/^/v&/' <<< "$DASHBOARD_VERSION")
     VERSION_NUM=${DASHBOARD_VERSION#v}  # 去掉可能的 v 前缀
-    if [ "$(printf '%s\n%s' "$VERSION_NUM" "0.20.13" | sort -V | head -n1)" = "$VERSION_NUM" ]; then
+    if [ "$VERSION_NUM" = "0.20.13" ]; then
+      # 版本 = 0.20.13：从 nap0o/nezha-dashboard 下载
+      { wget -qO $TEMP_DIR/dashboard.zip ${GH_PROXY}https://github.com/nap0o/nezha-dashboard/releases/download/v0.20.13/dashboard-linux-$ARCH.zip >/dev/null 2>&1; }&
+    elif [ "$(printf '%s\n%s' "$VERSION_NUM" "0.20.13" | sort -V | head -n1)" = "$VERSION_NUM" ] || [[ "$DASHBOARD_VERSION" =~ [1-2]\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+      # 版本 < 0.20.13或者v1：从 naiba/nezha 下载
       { wget -qO $TEMP_DIR/dashboard.zip ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip >/dev/null 2>&1; }&
     else
+      # 版本 > 0.20.13：从 railzen/nezha-zero 下载
       { wget -qO $TEMP_DIR/dashboard.zip ${GH_PROXY}https://github.com/railzen/nezha-zero/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip >/dev/null 2>&1; }&
     fi
   else

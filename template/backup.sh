@@ -83,7 +83,7 @@ CLOUDFLARED_LATEST=$(wget -qO- ${GH_PROXY}https://api.github.com/repos/cloudflar
 [[ "$CLOUDFLARED_LATEST" =~ ^20[0-9]{2}\.[0-9]{1,2}\.[0-9]+$ && "$CLOUDFLARED_NOW" != "$CLOUDFLARED_LATEST" ]] && CLOUDFLARED_UPDATE=true
 
 # 检测是否有设置备份数据
-if [[ -n "$GH_REPO" && -n "$GH_BACKUP_USER" && -n "$GH_EMAIL" && -n "$GH_PAT" ]]; then
+if [[ -n "$GH_REPO" && -n "$GH_BACKUP_USER" && -n "$GH_PAT" ]]; then
   IS_PRIVATE="$(wget -qO- --header="Authorization: token $GH_PAT" ${GH_PROXY}https://api.github.com/repos/$GH_BACKUP_USER/$GH_REPO | sed -n '/"private":/s/.*:[ ]*\([^,]*\),/\1/gp')"
   if [ "$?" != 0 ]; then
     warning "\n Could not connect to Github. Stop backup. \n"
@@ -100,9 +100,14 @@ if [[ "${DASHBOARD_UPDATE}${CLOUDFLARED_UPDATE}${IS_BACKUP}${FORCE_UPDATE}" =~ t
   if [[ "${DASHBOARD_UPDATE}${FORCE_UPDATE}" =~ 'true' ]]; then
     VERSION_NUM=${DASHBOARD_LATEST#v}  # 去掉 v 前缀
     hint "\n Renew dashboard app to $DASHBOARD_LATEST \n"
-    if [[ "$DASHBOARD_VERSION" =~ 0\.[0-9]{1,2}\.[0-9]{1,2}$ ]] && [ "$(printf '%s\n%s' "$VERSION_NUM" "0.20.13" | sort -V | tail -n1)" = "$VERSION_NUM" ] && [ "$VERSION_NUM" != "0.20.13" ]; then
+    if [ "$VERSION_NUM" = "0.20.13" ]; then
+      # 版本 = 0.20.13：从 nap0o/nezha-dashboard 下载
+      wget -O /tmp/dashboard.zip ${GH_PROXY}https://github.com/nap0o/nezha-dashboard/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip
+    elif [[ "$DASHBOARD_VERSION" =~ 0\.[0-9]{1,2}\.[0-9]{1,2}$ ]] && [ "$(printf '%s\n%s' "$VERSION_NUM" "0.20.13" | sort -V | tail -n1)" = "$VERSION_NUM" ]; then
+      # v0且版本 > 0.20.13：从 railzen/nezha-zero 下载
       wget -O /tmp/dashboard.zip ${GH_PROXY}https://github.com/railzen/nezha-zero/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip
     else
+      # 版本 < 0.20.13或者v1：从 naiba/nezha 下载
       wget -O /tmp/dashboard.zip ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip
     fi
     unzip -o /tmp/dashboard.zip -d /tmp
